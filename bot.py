@@ -16,17 +16,15 @@ from openai import AsyncOpenAI
 import aiosqlite
 
 # ============================================================
-# ۱. پیکربندی
+# ۱. پیکربندی — همه از Variables خوانده می‌شوند
 # ============================================================
-# ⚠️ این‌ها را با مقادیر واقعی خودت جایگزین کن
-BOT_TOKEN = "8690919773:AAGAN1rWpMZ8Vd2wPQQYqH0-oe84np3Zmlg"
-LLM_API_KEY = "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"
-LLM_BASE_URL = "https://openrouter.ai/api/v1"
-LLM_MODEL = "deepseek/deepseek-r1:free"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek/deepseek-r1:free").strip()
 
-# دامنه Railway — بعد از Generate Domain این مقدار به صورت خودکار پر می‌شود
-# اگر خالی باشد، از متغیر محیطی RAILWAY_PUBLIC_DOMAIN خوانده می‌شود
-RAILWAY_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+# دامنه Railway — بعد از Generate Domain خودکار پر می‌شود
+RAILWAY_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
 WEBHOOK_URL = f"https://{RAILWAY_DOMAIN}" if RAILWAY_DOMAIN else ""
 
 # مسیر و پورت
@@ -36,6 +34,9 @@ WEB_SERVER_PORT = int(os.getenv("PORT", 8080))
 
 DB_PATH = "bot.db"
 
+# ============================================================
+# ۲. متن‌های ثابت
+# ============================================================
 EMERGENCY_NUMBERS = """
 📞 **خطوط اضطراری:**
 - اورژانس اجتماعی: **۱۲۳**
@@ -74,7 +75,15 @@ CRISIS_KEYWORDS = [
 ]
 
 # ============================================================
-# ۲. کلاینت مدل زبانی
+# ۳. اعتبارسنجی اولیه
+# ============================================================
+if not BOT_TOKEN:
+    raise SystemExit("❌ خطا: متغیر BOT_TOKEN تنظیم نشده است. آن را در Railway Variables اضافه کن.")
+if not LLM_API_KEY:
+    raise SystemExit("❌ خطا: متغیر LLM_API_KEY تنظیم نشده است. آن را در Railway Variables اضافه کن.")
+
+# ============================================================
+# ۴. کلاینت مدل زبانی
 # ============================================================
 llm_client = AsyncOpenAI(
     api_key=LLM_API_KEY,
@@ -93,12 +102,29 @@ async def get_response(history: list[dict]) -> str:
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        logging.error(f"LLM error: {e}")
+        err = str(e)
+        logging.error(f"LLM error: {err}")
+
+        if "401" in err or "Unauthorized" in err or "User not found" in err:
+            return (
+                "⚠️ مشکل در اتصال به سرویس هوش مصنوعی.\n"
+                "لطفاً به مدیر ربات اطلاع بده که کلید API نیاز به بررسی دارد. 💙"
+            )
+        if "402" in err or "Insufficient" in err or "credits" in err:
+            return (
+                "⚠️ اعتبار سرویس هوش مصنوعی تمام شده است.\n"
+                "لطفاً بعداً تلاش کن. 💙"
+            )
+        if "429" in err or "rate limit" in err.lower():
+            return (
+                "⏳ سقف درخواست‌های روزانه پر شده است.\n"
+                "لطفاً چند ساعت دیگر یا فردا دوباره تلاش کن. 💙"
+            )
         return "متأسفم، الان نمی‌توانم پاسخ دهم. لطفاً بعداً تلاش کن. 💙"
 
 
 # ============================================================
-# ۳. دیتابیس
+# ۵. دیتابیس
 # ============================================================
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -140,7 +166,7 @@ async def clear_history(user_id: int):
 
 
 # ============================================================
-# ۴. تشخیص بحران
+# ۶. تشخیص بحران
 # ============================================================
 def is_crisis(text: str) -> bool:
     normalized = text.replace(" ", "").replace("\u200c", "")
@@ -148,7 +174,7 @@ def is_crisis(text: str) -> bool:
 
 
 # ============================================================
-# ۵. ربات و هندلرها
+# ۷. ربات و هندلرها
 # ============================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -218,7 +244,7 @@ async def handle_message(message: Message):
 
 
 # ============================================================
-# ۶. Webhook و سرور
+# ۸. Webhook و سرور
 # ============================================================
 async def on_startup(bot: Bot):
     if WEBHOOK_URL:
@@ -231,6 +257,11 @@ async def on_startup(bot: Bot):
 async def on_shutdown(bot: Bot):
     await bot.delete_webhook()
     logging.info("Webhook deleted.")
+
+
+async def health(request):
+    """مسیر سلامت برای Railway"""
+    return web.Response(text="OK")
 
 
 def main():
@@ -247,11 +278,9 @@ def main():
     )
     webhook_requests_handler.register(app, path=WEBHOOK_PATH)
 
-    # مسیر سلامت (برای Railway)
-    async def health(request):
-        return web.Response(text="OK")
-
+    # مسیر سلامت
     app.router.add_get("/", health)
+    app.router.add_get("/health", health)
 
     # ثبت رویدادهای startup و shutdown
     dp.startup.register(on_startup)
