@@ -19,8 +19,8 @@ import aiosqlite
 # ۱. پیکربندی
 # ============================================================
 # ⚠️ این‌ها را با مقادیر واقعی خودت جایگزین کن
-BOT_TOKEN = "توکن_ربات_خودت_رو_اینجا_بذار"
-LLM_API_KEY = "sk-or-v1-کلید_جدید_خودت_رو_اینجا_بذار"
+BOT_TOKEN = "8690919773:AAGAN1rWpMZ8Vd2wPQQYqH0-oe84np3Zmlg"
+LLM_API_KEY = "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"
 LLM_BASE_URL = "https://openrouter.ai/api/v1"
 LLM_MODEL = "deepseek/deepseek-r1:free"
 
