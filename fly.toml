@@ -1,0 +1,21 @@
+app = "psychology-bot-iran"   # اسم یکتا انتخاب کن
+primary_region = "fra"         # فرانکفورت (نزدیک‌ترین به ایران) [citation:4]
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  LLM_BASE_URL = "https://openrouter.ai/api/v1"
+  LLM_MODEL = "deepseek/deepseek-r1:free"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"       # بعد از بی‌کاری بخواب
+  auto_start_machines = true        # با آمدن پیام بیدار شو
+  min_machines_running = 0          # هیچ ماشینی همیشه روشن نباشد
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
