@@ -1,0 +1,4 @@
+aiogram==3.25.0
+openai
+aiosqlite
+aiohttp
