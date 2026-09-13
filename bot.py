@@ -1,5 +1,5 @@
 """
-ربات مشاور روانشناسی - نسخه Webhook برای Fly.io
+ربات مشاور روانشناسی - نسخه Webhook برای Railway
 گفتگوی همدلانه با هشدار عدم جایگزینی درمان
 """
 
@@ -10,7 +10,7 @@ from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message, Update
+from aiogram.types import Message
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from openai import AsyncOpenAI
 import aiosqlite
@@ -19,19 +19,20 @@ import aiosqlite
 # ۱. پیکربندی
 # ============================================================
 # ⚠️ این‌ها را با مقادیر واقعی خودت جایگزین کن
-BOT_TOKEN = "توکن_ربات_خودت"
-LLM_API_KEY = "sk-or-v1-..."
+BOT_TOKEN = "توکن_ربات_خودت_رو_اینجا_بذار"
+LLM_API_KEY = "sk-or-v1-کلید_جدید_خودت_رو_اینجا_بذار"
 LLM_BASE_URL = "https://openrouter.ai/api/v1"
 LLM_MODEL = "deepseek/deepseek-r1:free"
 
-# آدرس دامنه‌ای که Fly.io به تو می‌دهد (بعد از اولین deploy این را تنظیم کن)
-# مثال: https://psychology-bot-iran.fly.dev
-WEBHOOK_URL = "https://YOUR_APP_NAME.fly.dev"
+# دامنه Railway — بعد از Generate Domain این مقدار به صورت خودکار پر می‌شود
+# اگر خالی باشد، از متغیر محیطی RAILWAY_PUBLIC_DOMAIN خوانده می‌شود
+RAILWAY_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+WEBHOOK_URL = f"https://{RAILWAY_DOMAIN}" if RAILWAY_DOMAIN else ""
 
 # مسیر و پورت
 WEBHOOK_PATH = "/webhook"
 WEB_SERVER_HOST = "0.0.0.0"
-WEB_SERVER_PORT = 8080
+WEB_SERVER_PORT = int(os.getenv("PORT", 8080))
 
 DB_PATH = "bot.db"
 
@@ -149,7 +150,10 @@ def is_crisis(text: str) -> bool:
 # ============================================================
 # ۵. ربات و هندلرها
 # ============================================================
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -187,6 +191,7 @@ async def handle_message(message: Message):
     user_id = message.from_user.id
     text = message.text.strip()
 
+    # ۱. بررسی بحران
     if is_crisis(text):
         await save_message(user_id, "user", text)
         crisis_reply = (
@@ -199,10 +204,15 @@ async def handle_message(message: Message):
         await save_message(user_id, "assistant", crisis_reply)
         return
 
+    # ۲. ذخیره پیام کاربر
     await save_message(user_id, "user", text)
+
+    # ۳. ارسال "در حال تایپ" و گرفتن پاسخ
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     history = await get_history(user_id, limit=10)
     reply = await get_response(history)
+
+    # ۴. ذخیره و ارسال پاسخ
     await save_message(user_id, "assistant", reply)
     await message.answer(reply)
 
@@ -211,11 +221,22 @@ async def handle_message(message: Message):
 # ۶. Webhook و سرور
 # ============================================================
 async def on_startup(bot: Bot):
-    await bot.set_webhook(f"{WEBHOOK_URL}{WEBHOOK_PATH}")
-    logging.info(f"Webhook set to {WEBHOOK_URL}{WEBHOOK_PATH}")
+    if WEBHOOK_URL:
+        await bot.set_webhook(f"{WEBHOOK_URL}{WEBHOOK_PATH}")
+        logging.info(f"✅ Webhook set to {WEBHOOK_URL}{WEBHOOK_PATH}")
+    else:
+        logging.warning("⚠️ RAILWAY_PUBLIC_DOMAIN تنظیم نشده. Webhook ثبت نشد.")
+
+
+async def on_shutdown(bot: Bot):
+    await bot.delete_webhook()
+    logging.info("Webhook deleted.")
 
 
 def main():
+    # مقداردهی دیتابیس
+    asyncio.run(init_db())
+
     # ساخت اپلیکیشن aiohttp
     app = web.Application()
 
@@ -226,15 +247,21 @@ def main():
     )
     webhook_requests_handler.register(app, path=WEBHOOK_PATH)
 
-    # تنظیم startup
+    # مسیر سلامت (برای Railway)
+    async def health(request):
+        return web.Response(text="OK")
+
+    app.router.add_get("/", health)
+
+    # ثبت رویدادهای startup و shutdown
     dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
 
     # اجرا
     setup_application(app, dp, bot=bot)
+    logging.info(f"🚀 Starting web server on {WEB_SERVER_HOST}:{WEB_SERVER_PORT}")
     web.run_app(app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
 
 
 if __name__ == "__main__":
-    # مقداردهی دیتابیس در startup
-    asyncio.run(init_db())
     main()
